@@ -43,13 +43,13 @@
  evalA :: Store -> AExp -> Int
 
 
- evalA s (Num x)     =  x
+ evalA _ (Num x)     =  x
  evalA s (Plus x y)  = (evalA s x) + (evalA s y)
  evalA s (Times x y) = (evalA s x) * (evalA s y)
  evalA s (Neg x)     = -(evalA s x)
- evalA s (Var x)     = case Map.lookup x s of 
+ evalA s (Var x)     = case Map.lookup x s of
                          Nothing -> 0
-                         Just x -> x
+                         Just z -> z
 
 
 -- We can define boolean expressions similarly. Rather than concretely
@@ -68,8 +68,6 @@
 -- Write an interpreter for boolean expressions over our prior arithmetic expressions.
 
  evalB :: Store -> BExp AExp -> Bool
-
-
  evalB _ (Bool b) = b
  evalB s (Equal x y) = (evalA s x) == (evalA s y)
  evalB s (Lt x y) = (evalA s x) < (evalA s y)
@@ -93,15 +91,11 @@
 -- Write an interpreter for this language.
 
  eval :: Store -> Stmt AExp BExp -> Store
-
-
  eval s Skip = s
  eval s (Assign x y) = Map.insert x (evalA s y) s
  eval s (Seq x y) = eval (eval s x) y
  eval s (If c x y) = if evalB s c then eval s x else eval s y
  eval s (While c x) = if evalB s c then eval (eval s x) (While c x) else s
-
-
 
 -- <h3>Problem 2: While, with failures</h3>
 
@@ -135,29 +129,72 @@
 -- better indicate the source of the problem.)
 
  evalA' :: Store -> AExp' -> Either Error Int
-
-
- evalA' s (Num' x)     = Right x
- evalA' s (Plus' x y)  = (evalA' s x) + (evalA' s y)
- evalA' s (Times' x y) = (evalA' s x) * (evalA' s y)
- -- question: is this supposed to return x or y in the dividebyzero error case?
- -- how tf do you divide either types or rather multiply them? cmon greenberg
- evalA' s (Div' x y)   = if (evalA' s y) == Right 0 
-                           then Left (DivideByZero x) 
-                           else (evalA' s x) / (evalA' s y)
+ evalA' _ (Num' x)     = Right x
+ evalA' s (Plus' x y)  = case evalA' s x of
+                          Left e -> Left e
+                          Right z -> case evalA' s y of
+                                      Left e -> Left e
+                                      Right v -> Right $ z + v
+ evalA' s (Times' x y) = case evalA' s x of
+                          Left e -> Left e
+                          Right z -> case evalA' s y of
+                                      Left e -> Left e
+                                      Right v -> Right $ z * v
+ evalA' s (Div' x y)   = case evalA' s y of
+                          Left e -> Left e
+                          Right 0 -> Left (DivideByZero (Div' x y))
+                          Right z -> case evalA' s x of
+                                      Left e -> Left e
+                                      Right v -> Right $ v `div` z
  evalA' s (Neg' x)     = evalA' s (Times' (Neg' (Num' 1)) x)
- evalA' s (Var' x)     = case Map.lookup x s of 
+ evalA' s (Var' x)     = case Map.lookup x s of
                             Nothing -> Left (NoSuchVariable x)
-                            Just x -> Right x
+                            Just z -> Right z
 
+ evalB' :: Store -> BExp AExp' -> Either Error Bool
+ evalB' _ (Bool b) = Right b
+ evalB' s (Equal x y) = case evalA' s x of
+                         Left e -> Left e
+                         Right z -> case evalA' s y of
+                           Left e -> Left e
+                           Right v -> Right $ z == v
+ evalB' s (Lt x y) = case evalA' s x of
+                         Left e -> Left e
+                         Right z -> case evalA' s y of
+                           Left e -> Left e
+                           Right v -> Right $ z < v
+ evalB' s (Not x) = case evalB' s x of
+                      Left e -> Left e
+                      Right z -> Right $ not z
+ evalB' s (Or x y) = case evalB' s x of
+                         Left e -> Left e
+                         Right z -> case evalB' s y of
+                           Left e -> Left e
+                           Right v -> Right $ z || v
+ evalB' s (And x y) = case evalB' s x of
+                         Left e -> Left e
+                         Right z -> case evalB' s y of
+                           Left e -> Left e
+                           Right v -> Right $ z && v
 
  eval' :: Store -> Stmt AExp' BExp -> Either Error Store
-
- eval' s Skip = Right s
- eval' s (Assign x y) = Right Map.insert x (evalA' s y) s
- eval' s (Seq x y) = eval' (eval' s x) y
- eval' s (If c x y) = if evalB s c then eval' s x else eval' s y
- eval' s (While c x) = if evalB s c then eval' (eval' s x) (While c x) else Right s
+ eval' s Skip         = Right s
+ eval' s (Assign x y) = case evalA' s y of
+                         Right z -> Right $ Map.insert x z s
+                         Left e  -> Left e
+ eval' s (Seq x y)    = case eval' s x of
+                         Right z -> eval' z y
+                         Left e  -> Left e
+ eval' s (If c x y)   = case evalB' s c of
+                         Left e      -> Left e
+                         Right True  -> eval' s x
+                         Right False -> eval' s y
+ eval' s (While c x)  = case evalB' s c of
+                         Left e     -> Left e
+                         Right True -> case eval' s x of
+                                        Left e -> Left e
+                                        Right z -> eval' z (While c x)
+                         Right False -> Right s
 
 -- <h3>Problem 3: Static analysis</h3>
 
@@ -194,21 +231,40 @@
 
 -- To get started, write functions that collect all of the variables that
 -- appear in given arithmetic and boolean expressions.
+--
+-- Var' VarName
+-- | Num' Int
+-- | Plus' AExp' AExp'
+-- | Times' AExp' AExp'
+-- | Neg' AExp'
+-- | Div' AExp' AExp'
 
  varsA :: AExp' -> Set VarName
+ varsA (Var' b) = Set.singleton b
+ varsA (Num' _) = Set.empty
+ varsA (Plus' a b) = Set.union (varsA a) (varsA b)
+ varsA (Times' a b) = Set.union (varsA a) (varsA b)
+ varsA (Neg' a) = varsA a
+ varsA (Div' a b) = Set.union (varsA a) (varsA b)
 
-
- varsA _ = undefined
-
-
--- For example, `varsA (Times (Plus' (Var' "x") (Var' "y")) (Num 3)) ==
+-- For example, `varsA (Times' (Plus' (Var' "x") (Var' "y")) (Num' 3)) ==
 -- Set.fromList ["x", "y"]`.
+-- data BExp a =
+--     Bool Bool
+--   | Equal a a
+--   | Lt a a
+--   | Not (BExp a)
+--   | Or (BExp a) (BExp a)
+--   | And (BExp a) (BExp a)
+--   deriving (Show, Eq, Ord)
 
  varsB :: BExp AExp' -> Set VarName
-
-
- varsB _ = undefined
-
+ varsB (Bool b) = Set.empty
+ varsB (Equal a b) = Set.union (varsA a) (varsA b)
+ varsB (Lt a b) = Set.union (varsA a) (varsA b)
+ varsB (Not b) = varsB b
+ varsB (Or a b) = Set.union (varsB a) (varsB b)
+ varsB (And a b) = Set.union (varsB a) (varsB b)
 
 -- For example, `varsB (Or (Not (Equal (Var' "foo") (Var' "bar"))) (Bool
 -- True)) == Set.fromList ["bar", "foo"]`.
