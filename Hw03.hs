@@ -10,7 +10,7 @@
  import Data.Map (Map)
  import qualified Data.Set as Set
  import Data.Set (Set)
-
+--Molly Driscoll and Charlie Watson
 -- Throughout this homework, we'll be experimenting with our first
 -- interpreter for what really is a programming language. We'll need two
 -- concepts throughout: variable names (which will just be strings) and
@@ -436,9 +436,10 @@
  tricky :: Stmt AExp BExp
  tricky = (While (Bool True) (Assign "x" (Plus (Var "x") (Num 1))))
 
+
 -- Explain why your `haltsIn` gives an imprecise answer.
 
--- Because it is forced to stop considering whether or not your program halts at
+-- Because haltsIn is forced to stop considering whether or not your program halts at
 -- a certain iteration limit, and assuming that there are more configs to consider
 -- after you've stopped. Also, the halting problem is undecidable so it was impossible
 -- for us to give a precise yes or no (re: the title of this problem)
@@ -447,8 +448,12 @@
 -- answer? If so, explain your idea---or write it! If not, explain (or
 -- prove!) why not.
 
--- Well Greenberg, if haltsIn is given as input a program haltsIn' and a corresponding input x
--- that is designed in the same way as haltsIn. Then we redefine the functionality of haltsIn to say
--- that when haltsIn'returns Yes on input x 
+-- HaltsIn will always be correct. There are two types of programs. Those that will terminate
+-- in a specified number of steps and those that don't. Since we specify the number of steps 
+-- that we care about our program halting in we have lost the ambiguity that normally
+-- makes the halting problem undecidable. We can consider then the two cases, one where our program 
+-- halts in n steps and one where it doesn't. If it does halt in less than n steps than haltsIn
+-- will recognize that and return Yes. If our program doesn't halt then we naturally fall into the
+-- maybe case. So no matter whether or program halts in n steps or not, haltsIn will give a correct answer
 
 
