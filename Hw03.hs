@@ -213,7 +213,7 @@
 -- The program `unboundY` will always fail in an unbound store. It can be
 -- more ambiguous, though, as in:
 
- ambiguous b = Seq (If b (Assign "y" (Num' 0)) Skip) unboundY
+ ambiguous b = Seq (If b (Assign "y" (Num' 0)) (Assign "y" (Num' 0))) unboundY
 
 -- Depending on what we know about `b`, we may or may not have a problem
 -- on our hands. Absent any information about `b`, it *could* happen that
@@ -277,7 +277,14 @@
  useBeforeDef :: Set VarName -> Stmt AExp' BExp -> (Set VarName, Set VarName)
  useBeforeDef defs Skip = (defs, Set.empty)
  useBeforeDef defs (Assign x a) = (Set.insert x defs, varsA a `Set.difference` defs)
-
+ useBeforeDef defs (If b s1 s2) = let s1' = (useBeforeDef defs s1)
+                                      s2' = (useBeforeDef defs s2)
+                                  in (Set.union defs (Set.intersection (fst s1') (fst s2')), Set.union (snd s1') (snd s2')) 
+ useBeforeDef defs (Seq s1 s2) = let s1' = useBeforeDef defs s1
+                                     s2' = useBeforeDef (fst s1') s2
+                                  in (fst s2', Set.union (snd s1') (snd s2'))
+ useBeforeDef defs (While c x) = useBeforeDef defs x 
+  
 
 -- What should the other cases do? Remember, you have to be *sound*: the
 -- variable in the first part of the pair (the defined variables) must
@@ -303,7 +310,6 @@
 -- Once you know how `If` and `Seq` works, you should have the general
 -- principle for `While`. Sketch it out on the board!
 
- useBeforeDef _ _ = undefined
 
 
 
@@ -312,12 +318,12 @@
 -- obligated to do better, but don't do worse. You can modify or delete
 -- these tests---my grader ignores them.
 
- testUnbound, testAmbiguous :: Bool
- testUnbound = useBeforeDef Set.empty unboundY ==
+ testUnbound :: Bool
+ testUnbound = useBeforeDef (Set.singleton "y") unboundY ==
                (Set.singleton "x", Set.singleton "y")
 
- testAmbiguous = useBeforeDef Set.empty (ambiguous (Bool True)) ==
-                 (Set.singleton "x", Set.singleton "y")
+ testAmbiguous = useBeforeDef Set.empty (ambiguous (Bool True))
+               
 
 -- <h3>Problem 4: Mission Impossible</h3>
 
@@ -336,9 +342,11 @@
  step (_,Skip) = Nothing
  step (st,Assign x a) = Just (Map.insert x (evalA st a) st,Skip)
  step (st,Seq Skip s2) = Just (st,s2)
- step (st,Seq s1 s2) = undefined
- step (st,If b s1 s2) = undefined
- step (st,While b s) = undefined
+ step (st,Seq s1 s2) = Just((eval st s1), s2)
+ step (st,If b s1 s2) = if evalB st b then Just(eval st s1, Skip)
+                        else Just(eval st s2 , Skip)
+ step (st,While b s) = if evalB st b then Just(eval st s, While b s)
+                       else Nothing
 
 -- Given a step function, we can compute a trace, i.e., the possibly
 -- infinite list of `Config`s that the program will step through. Such a
@@ -361,7 +369,7 @@
 
 -- Write a function `diverges` that checks for loops in a list of
 -- configurations. (Note that I've written a much more general type.) The
--- integer paramter should serve as a timeout---a limit as to how far
+-- integer parameter should serve as a timeout---a limit as to how far
 -- we're willing to look.
 
 -- What counts as a loop? Each element in the list will represent a
@@ -373,8 +381,14 @@
 -- loop. A wise choice of data structure here will make your life easier
 -- (and speed up your program).
 
+ divergeHelp :: Ord a => Int -> [a] -> Set a-> TVL
+ divergeHelp 0 _ _ = Maybe
+ divergeHelp limit (x:xs) s = if Set.member x s then Yes else divergeHelp (limit -1) xs s
+ divergeHelp _ [] _ = No
+
+
  diverges :: Ord a => Int -> [a] -> TVL
- diverges limit = undefined
+ diverges limit ls = divergeHelp limit ls Set.empty
 
 
 -- Write a function `haltsIn` that takes a starting configuration and a
@@ -382,7 +396,15 @@
 -- (within the specified limit, from the empty store).
 
  haltsIn :: Stmt AExp BExp -> Int -> TVL
- haltsIn s limit = undefined
+ haltsIn s limit = haltsInHelp s Map.empty limit
+
+ haltsInHelp :: Stmt AExp BExp -> Store -> Int -> TVL
+ haltsInHelp _ _ 0 = Maybe
+ haltsInHelp s st limit = case step (st, s) of 
+                            Nothing -> Yes
+                            Just (a,b) -> haltsInHelp b a (limit-1)
+
+
 
 
 -- Now we have our analysis... let's see what it can do. Write a While
@@ -393,7 +415,7 @@
 -- ```
 
  loop :: Stmt AExp BExp
- loop = undefined
+ loop = (While (Bool True) (Assign "x" (Num 3)))
 
 -- Write a While program `long` that converges and:
 
@@ -403,7 +425,7 @@
 -- ```
 
  long :: Stmt AExp BExp
- long = undefined
+ long = (While (Lt (Var "x") (Num 2000)) (Assign "x" (Plus (Var "x") (Num 1))))
 
 -- Write a While program `tricky` that diverges but for all `n`:
 
@@ -412,11 +434,21 @@
 -- ```
 
  tricky :: Stmt AExp BExp
- tricky = undefined
+ tricky = (While (Bool True) (Assign "x" (Plus (Var "x") (Num 1))))
 
 -- Explain why your `haltsIn` gives an imprecise answer.
 
+-- Because it is forced to stop considering whether or not your program halts at
+-- a certain iteration limit, and assuming that there are more configs to consider
+-- after you've stopped. Also, the halting problem is undecidable so it was impossible
+-- for us to give a precise yes or no (re: the title of this problem)
 
 -- Do you think you can write a program where `haltsIn` gives a wrong
 -- answer? If so, explain your idea---or write it! If not, explain (or
 -- prove!) why not.
+
+-- Well Greenberg, if haltsIn is given as input a program haltsIn' and a corresponding input x
+-- that is designed in the same way as haltsIn. Then we redefine the functionality of haltsIn to say
+-- that when haltsIn'returns Yes on input x 
+
+
